@@ -1,16 +1,72 @@
-# fluttertest
+# Flutter Posts (JSONPlaceholder)
 
-A new Flutter project.
+Modern Flutter app that fetches and displays blog posts from `https://jsonplaceholder.typicode.com/posts`.
+
+## Preview
+- List of posts with smooth Material motion (container transform)
+- Pull-to-refresh, loading states, and error with retry
+- Responsive and accessible typography via Google Fonts
+
+## Architecture
+- MVVM using a Stacked approach:
+  - Model: `Post`
+  - ViewModel: `PostsNotifier` (Riverpod `StateNotifier`)
+  - View: `PostsPage` and item/detail views
+- State management: Riverpod
+- Networking: Dio
+
+Project structure:
+```
+lib/
+  app/
+    app.dart                 # App root, theming, routing
+  features/
+    posts/
+      models/post.dart       # Data model
+      services/posts_service.dart   # API client (Dio)
+      providers/posts_providers.dart # ViewModel + providers
+      views/posts_page.dart  # UI (list, error, detail)
+  main.dart
+```
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+### Prerequisites
+- Flutter SDK installed
+- Dart 3.9+ (as defined in `pubspec.yaml`)
 
-A few resources to get you started if this is your first Flutter project:
+### Install dependencies
+```bash
+flutter pub get
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Run
+```bash
+flutter run
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Test (sample widget test exists)
+```bash
+flutter test
+```
+
+## How it Works
+- `JsonPlaceholderPostsService` uses Dio to GET `/posts` and maps JSON to `Post` models.
+- `PostsNotifier` exposes `PostsState { isLoading, posts, errorMessage }` and async actions:
+  - `loadPosts()` for initial load with spinner and error capture
+  - `refreshPosts()` for pull-to-refresh (propagates errors to the indicator)
+- `PostsPage` listens to the state and renders:
+  - Loading indicator
+  - Error view with Retry
+  - `ListView.separated` with Material container transform to detail
+
+## Packages
+- `flutter_riverpod`: Scoped, testable state management.
+- `dio`: Robust HTTP client with helpful errors.
+- `google_fonts`: Modern, legible typography (Inter).
+- `animations`: Material motion container transform.
+
+## Notes
+- Proper async/await, error handling, and UX states are implemented.
+- Follows clean code practices: small files, clear names, early returns.
+
