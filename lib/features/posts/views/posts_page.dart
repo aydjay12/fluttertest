@@ -15,6 +15,7 @@ class _PostsPageState extends ConsumerState<PostsPage> {
   int _currentPage = 0;
   final int _postsPerPage = 10; // Number of posts per page
   final ScrollController _scrollController = ScrollController();
+  bool _isReverse = false; // Controls animation direction
 
   @override
   void initState() {
@@ -26,16 +27,24 @@ class _PostsPageState extends ConsumerState<PostsPage> {
 
   void _goToPreviousPage() {
     setState(() {
-      _currentPage = (_currentPage - 1).clamp(0, _totalPages - 1);
+      _isReverse = true;
+      _currentPage = (_currentPage - 1).clamp(0, _maxPageIndex());
     });
     _scrollToTop();
   }
 
   void _goToNextPage() {
     setState(() {
-      _currentPage = (_currentPage + 1).clamp(0, _totalPages - 1);
+      _isReverse = false;
+      _currentPage = (_currentPage + 1).clamp(0, _maxPageIndex());
     });
     _scrollToTop();
+  }
+
+  int _maxPageIndex() {
+    final posts = ref.read(postsNotifierProvider).posts;
+    final totalPages = _computeTotalPages(posts);
+    return (totalPages - 1).clamp(0, 1 << 30);
   }
 
   void _scrollToTop() {
@@ -47,25 +56,24 @@ class _PostsPageState extends ConsumerState<PostsPage> {
     );
   }
 
-  int get _totalPages {
-    final state = ref.watch(postsNotifierProvider);
-    if (state.posts.isEmpty) return 1; // At least one page even if empty
-    return (state.posts.length / _postsPerPage).ceil();
+  int _computeTotalPages(List<Post> posts) {
+    if (posts.isEmpty) return 1;
+    return (posts.length / _postsPerPage).ceil();
   }
 
-  List<Post> get _currentPosts {
-    final state = ref.watch(postsNotifierProvider);
-    if (state.posts.isEmpty) return [];
-
+  List<Post> _slicePosts(List<Post> posts) {
+    if (posts.isEmpty) return const [];
     final startIndex = _currentPage * _postsPerPage;
-    final endIndex = (startIndex + _postsPerPage).clamp(0, state.posts.length);
-    return state.posts.sublist(startIndex, endIndex);
+    final endIndex = (startIndex + _postsPerPage).clamp(0, posts.length);
+    return posts.sublist(startIndex, endIndex);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(postsNotifierProvider);
     final theme = Theme.of(context);
+    final totalPages = _computeTotalPages(state.posts);
+    final pagePosts = _slicePosts(state.posts);
 
     return Scaffold(
       appBar: AppBar(
@@ -86,13 +94,13 @@ class _PostsPageState extends ConsumerState<PostsPage> {
             secondaryAnimation: kAlwaysDismissedAnimation,
             child: child,
           ),
-          child: _buildBody(context, state),
+          child: _buildBody(context, state, totalPages, pagePosts),
         ),
       ),
     );
   }
 
-  Widget _buildBody(BuildContext context, PostsState state) {
+  Widget _buildBody(BuildContext context, PostsState state, int totalPages, List<Post> pagePosts) {
     if (state.isLoading && state.posts.isEmpty) {
       return const Center(
         key: ValueKey('loading'),
@@ -120,13 +128,14 @@ class _PostsPageState extends ConsumerState<PostsPage> {
     }
     return _PostsListWithPagination(
       key: const ValueKey('posts_list'),
-      posts: _currentPosts,
+      posts: pagePosts,
       currentPage: _currentPage,
-      totalPages: _totalPages,
+      totalPages: totalPages,
       onPreviousPage: _goToPreviousPage,
       onNextPage: _goToNextPage,
       isLoadingMore: state.isLoading, // Indicate loading when refresh is happening
       controller: _scrollController,
+      isReverse: _isReverse,
     );
   }
 }
@@ -224,6 +233,7 @@ class _PostsListWithPagination extends StatelessWidget {
     required this.onNextPage,
     this.isLoadingMore = false,
     required this.controller,
+    required this.isReverse,
   });
 
   final List<Post> posts;
@@ -233,6 +243,7 @@ class _PostsListWithPagination extends StatelessWidget {
   final VoidCallback onNextPage;
   final bool isLoadingMore;
   final ScrollController controller;
+  final bool isReverse;
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +253,7 @@ class _PostsListWithPagination extends StatelessWidget {
         Expanded(
           child: PageTransitionSwitcher(
             duration: const Duration(milliseconds: 300),
-            reverse: false,
+            reverse: isReverse,
             transitionBuilder: (child, primary, secondary) {
               return SharedAxisTransition(
                 animation: primary,
@@ -255,6 +266,10 @@ class _PostsListWithPagination extends StatelessWidget {
               key: ValueKey('page_\${currentPage}'),
               controller: controller,
               physics: const AlwaysScrollableScrollPhysics(),
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
+              addSemanticIndexes: false,
+              cacheExtent: 800,
               padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
               itemCount: posts.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),

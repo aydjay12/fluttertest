@@ -6,7 +6,20 @@ abstract class PostsService {
 }
 
 class JsonPlaceholderPostsService implements PostsService {
-  JsonPlaceholderPostsService({Dio? dio}) : _dio = dio ?? Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 10)));
+  JsonPlaceholderPostsService({Dio? dio})
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 8),
+                receiveTimeout: const Duration(seconds: 8),
+                sendTimeout: const Duration(seconds: 8),
+                responseType: ResponseType.json,
+                contentType: 'application/json; charset=utf-8',
+                headers: const {
+                  'Accept': 'application/json',
+                },
+              ),
+            );
 
   final Dio _dio;
   static const String _baseUrl = 'https://jsonplaceholder.typicode.com/posts';
