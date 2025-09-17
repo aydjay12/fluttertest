@@ -29,10 +29,10 @@ void main() {
     );
 
     await tester.pump();
-    expect(find.text('Latest Posts'), findsOneWidget);
+    expect(find.text('Flutter Posts'), findsOneWidget);
 
     // Let async init (loadPosts) complete
-    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pumpAndSettle(const Duration(milliseconds: 50));
     expect(find.byType(ListView), findsOneWidget);
   });
 }

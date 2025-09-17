@@ -63,7 +63,7 @@ flutter test
 ## Packages
 - `flutter_riverpod`: Scoped, testable state management.
 - `dio`: Robust HTTP client with helpful errors.
-- `google_fonts`: Modern, legible typography (Inter).
+- `google_fonts`: Modern, legible typography (Raleway).
 - `animations`: Material motion container transform.
 
 ## Notes

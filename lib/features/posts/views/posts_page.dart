@@ -11,34 +11,86 @@ class PostsPage extends ConsumerStatefulWidget {
   ConsumerState<PostsPage> createState() => _PostsPageState();
 }
 
-class _PostsPageState extends ConsumerState<PostsPage> {
+class _PostsPageState extends ConsumerState<PostsPage>
+    with TickerProviderStateMixin {
   int _currentPage = 0;
-  final int _postsPerPage = 10; // Number of posts per page
+  final int _postsPerPage = 10;
   final ScrollController _scrollController = ScrollController();
-  bool _isReverse = false; // Controls animation direction
+  bool _isReverse = false;
+  
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
+    
+    // Initialize animation controllers
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOutQuart,
+    );
+    
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(postsNotifierProvider.notifier).loadPosts();
+      _fadeController.forward();
+      _slideController.forward();
     });
   }
 
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _fadeController.dispose();
+    _slideController.dispose();
+    super.dispose();
+  }
+
   void _goToPreviousPage() {
+    if (_currentPage <= 0) return;
+    
     setState(() {
       _isReverse = true;
       _currentPage = (_currentPage - 1).clamp(0, _maxPageIndex());
     });
     _scrollToTop();
+    _animatePageTransition();
   }
 
   void _goToNextPage() {
+    if (_currentPage >= _maxPageIndex()) return;
+    
     setState(() {
       _isReverse = false;
       _currentPage = (_currentPage + 1).clamp(0, _maxPageIndex());
     });
     _scrollToTop();
+    _animatePageTransition();
+  }
+
+  void _animatePageTransition() {
+    _slideController.reset();
+    _slideController.forward();
   }
 
   int _maxPageIndex() {
@@ -51,7 +103,7 @@ class _PostsPageState extends ConsumerState<PostsPage> {
     if (!_scrollController.hasClients) return;
     _scrollController.animateTo(
       0,
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 400),
       curve: Curves.easeOutCubic,
     );
   }
@@ -76,25 +128,76 @@ class _PostsPageState extends ConsumerState<PostsPage> {
     final pagePosts = _slicePosts(state.posts);
 
     return Scaffold(
+      extendBodyBehindAppBar: false,
       appBar: AppBar(
-        title: const Text('Modern Posts App'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onPrimary.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.article_rounded,
+                size: 24,
+                color: theme.colorScheme.onPrimary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text('Flutter Posts'),
+          ],
+        ),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
+        elevation: 0,
+        scrolledUnderElevation: 4,
+        shadowColor: theme.colorScheme.primary.withOpacity(0.3),
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await ref.read(postsNotifierProvider.notifier).refreshPosts();
-        },
-        color: theme.colorScheme.onPrimary,
-        backgroundColor: theme.colorScheme.primary,
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 400),
-          transitionBuilder: (child, animation) => FadeThroughTransition(
-            animation: animation,
-            secondaryAnimation: kAlwaysDismissedAnimation,
-            child: child,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              theme.colorScheme.surface,
+              theme.colorScheme.surface.withOpacity(0.8),
+            ],
+            stops: const [0.0, 1.0],
           ),
-          child: _buildBody(context, state, totalPages, pagePosts),
+        ),
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: RefreshIndicator(
+              onRefresh: () async {
+                await ref.read(postsNotifierProvider.notifier).refreshPosts();
+                // Keep current page after refresh
+              },
+              color: theme.colorScheme.primary,
+              backgroundColor: theme.colorScheme.surface,
+              strokeWidth: 3,
+              displacement: 60,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 500),
+                switchInCurve: Curves.easeOutQuart,
+                switchOutCurve: Curves.easeInQuart,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.03),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: _buildBody(context, state, totalPages, pagePosts),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -102,10 +205,7 @@ class _PostsPageState extends ConsumerState<PostsPage> {
 
   Widget _buildBody(BuildContext context, PostsState state, int totalPages, List<Post> pagePosts) {
     if (state.isLoading && state.posts.isEmpty) {
-      return const Center(
-        key: ValueKey('loading'),
-        child: CircularProgressIndicator(),
-      );
+      return _LoadingView(key: const ValueKey('loading'));
     }
     if (state.errorMessage != null && state.posts.isEmpty) {
       return _ErrorView(
@@ -113,7 +213,7 @@ class _PostsPageState extends ConsumerState<PostsPage> {
         message: state.errorMessage!,
         onRetry: () {
           ref.read(postsNotifierProvider.notifier).loadPosts();
-          _currentPage = 0; // Reset page on retry
+          setState(() => _currentPage = 0);
         },
       );
     }
@@ -122,7 +222,7 @@ class _PostsPageState extends ConsumerState<PostsPage> {
         key: const ValueKey('empty'),
         onRefresh: () {
           ref.read(postsNotifierProvider.notifier).refreshPosts();
-          _currentPage = 0;
+          setState(() => _currentPage = 0);
         },
       );
     }
@@ -133,9 +233,89 @@ class _PostsPageState extends ConsumerState<PostsPage> {
       totalPages: totalPages,
       onPreviousPage: _goToPreviousPage,
       onNextPage: _goToNextPage,
-      isLoadingMore: state.isLoading, // Indicate loading when refresh is happening
+      isLoadingMore: state.isLoading,
       controller: _scrollController,
       isReverse: _isReverse,
+    );
+  }
+}
+
+class _LoadingView extends StatefulWidget {
+  const _LoadingView({super.key});
+
+  @override
+  State<_LoadingView> createState() => _LoadingViewState();
+}
+
+class _LoadingViewState extends State<_LoadingView>
+    with TickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    )..repeat(reverse: true);
+    
+    _pulseAnimation = Tween<double>(
+      begin: 0.3,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedBuilder(
+            animation: _pulseAnimation,
+            builder: (context, child) {
+              return Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      theme.colorScheme.primary.withOpacity(_pulseAnimation.value),
+                      theme.colorScheme.primary.withOpacity(0.1),
+                    ],
+                  ),
+                ),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Loading posts...',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.7),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -150,29 +330,53 @@ class _ErrorView extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off_outlined, size: 60, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text(
-              'Oops! Something went wrong.',
-              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Failed to load posts: ${message.contains("Exception:") ? message.split("Exception:").last.trim() : message}',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface.withOpacity(0.7)),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.errorContainer.withOpacity(0.1),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: theme.colorScheme.error.withOpacity(0.3),
+                  width: 2,
+                ),
+              ),
+              child: Icon(
+                Icons.cloud_off_rounded,
+                size: 60,
+                color: theme.colorScheme.error,
+              ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
+            Text(
+              'Connection Lost',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Unable to fetch posts. Please check your internet connection and try again.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.7),
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 32),
+            FilledButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh_rounded),
               label: const Text('Try Again'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
           ],
@@ -191,29 +395,49 @@ class _EmptyPostsView extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.article_outlined, size: 60, color: theme.colorScheme.primary.withOpacity(0.7)),
-            const SizedBox(height: 16),
-            Text(
-              'No Posts Yet!',
-              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'It seems there are no posts to display at the moment. Pull down to refresh or try again.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface.withOpacity(0.7)),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withOpacity(0.3),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.article_outlined,
+                size: 64,
+                color: theme.colorScheme.primary,
+              ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
+            Text(
+              'No Posts Available',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'There are no posts to display at the moment. Pull down to refresh or tap the button below.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.7),
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 32),
+            FilledButton.icon(
               onPressed: onRefresh,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh_rounded),
               label: const Text('Refresh'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
           ],
@@ -252,7 +476,7 @@ class _PostsListWithPagination extends StatelessWidget {
       children: [
         Expanded(
           child: PageTransitionSwitcher(
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 400),
             reverse: isReverse,
             transitionBuilder: (child, primary, secondary) {
               return SharedAxisTransition(
@@ -263,186 +487,622 @@ class _PostsListWithPagination extends StatelessWidget {
               );
             },
             child: ListView.separated(
-              key: ValueKey('page_\${currentPage}'),
+              key: ValueKey('page_$currentPage'),
               controller: controller,
-              physics: const AlwaysScrollableScrollPhysics(),
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
               addAutomaticKeepAlives: false,
               addRepaintBoundaries: true,
               addSemanticIndexes: false,
-              cacheExtent: 800,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+              cacheExtent: 1000,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
               itemCount: posts.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              separatorBuilder: (_, __) => const SizedBox(height: 16),
               itemBuilder: (context, index) {
-                final p = posts[index];
-                return OpenContainer(
-                  closedElevation: 0,
-                  openElevation: 0,
-                  closedShape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  transitionDuration: const Duration(milliseconds: 450),
-                  closedBuilder: (context, open) => _PostCard(post: p, onTap: open),
-                  openBuilder: (context, _) => _PostDetails(post: p),
+                final post = posts[index];
+                return TweenAnimationBuilder<double>(
+                  duration: Duration(milliseconds: 300 + (index * 50)),
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  builder: (context, value, child) {
+                    return Transform.translate(
+                      offset: Offset(0, 20 * (1 - value)),
+                      child: Opacity(
+                        opacity: value,
+                        child: OpenContainer(
+                          closedElevation: 0,
+                          openElevation: 0,
+                          closedShape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          transitionDuration: const Duration(milliseconds: 600),
+                          closedBuilder: (context, open) => _PostCard(
+                            post: post,
+                            onTap: open,
+                            index: index,
+                          ),
+                          openBuilder: (context, _) => _PostDetails(post: post),
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
             ),
           ),
         ),
-        if (totalPages > 1) // Only show pagination if there's more than one page
-          Padding(
-            padding: const EdgeInsets.all(16.0),
+        if (totalPages > 1)
+          Container(
+            margin: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.shadow.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: currentPage > 0 ? onPreviousPage : null,
-                    icon: const Icon(Icons.arrow_back),
+                    icon: const Icon(Icons.arrow_back_rounded),
                     label: const Text('Previous'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                  child: Text(
-                    'Page ${currentPage + 1} of $totalPages',
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${currentPage + 1} / $totalPages',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
                   ),
                 ),
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: currentPage < totalPages - 1 ? onNextPage : null,
-                    icon: const Icon(Icons.arrow_forward),
+                    icon: const Icon(Icons.arrow_forward_rounded),
                     label: const Text('Next'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        if (isLoadingMore) // Show a subtle indicator when refreshing
-          LinearProgressIndicator(
-            color: theme.colorScheme.secondary,
-            backgroundColor: theme.colorScheme.secondary.withOpacity(0.2),
+        if (isLoadingMore)
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: LinearProgressIndicator(
+              minHeight: 3,
+              backgroundColor: theme.colorScheme.primaryContainer.withOpacity(0.3),
+              valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+            ),
           ),
       ],
     );
   }
 }
 
-class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post, required this.onTap});
+class _PostCard extends StatefulWidget {
+  const _PostCard({required this.post, required this.onTap, required this.index});
   final Post post;
   final VoidCallback onTap;
+  final int index;
+
+  @override
+  State<_PostCard> createState() => _PostCardState();
+}
+
+class _PostCardState extends State<_PostCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _hoverController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _elevationAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _hoverController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.02,
+    ).animate(CurvedAnimation(
+      parent: _hoverController,
+      curve: Curves.easeOut,
+    ));
+    
+    _elevationAnimation = Tween<double>(
+      begin: 2.0,
+      end: 8.0,
+    ).animate(CurvedAnimation(
+      parent: _hoverController,
+      curve: Curves.easeOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _hoverController.dispose();
+    super.dispose();
+  }
+
+  String _formatBody(String body) {
+    return body.replaceAll('\n', ' ').trim();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    return Card(
-      color: cs.surface,
-      elevation: 2, // Subtle shadow for a card effect
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      clipBehavior: Clip.antiAlias, // Ensures content is clipped to rounded corners
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(18.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Hero(
-                tag: 'post_title_${post.id}', // Unique tag for Hero animation
-                child: Material(
-                  type: MaterialType.transparency, // Essential for Hero text animation
-                  child: Text(
-                    post.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: cs.onSurface,
-                    ),
+    final isEvenIndex = widget.index.isEven;
+    
+    return AnimatedBuilder(
+      animation: _hoverController,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _scaleAnimation.value,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: theme.colorScheme.surface,
+              border: Border.all(
+                color: theme.colorScheme.primary.withOpacity(0.2),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.shadow.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: widget.onTap,
+                onTapDown: (_) => _hoverController.forward(),
+                onTapUp: (_) => _hoverController.reverse(),
+                onTapCancel: () => _hoverController.reverse(),
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  theme.colorScheme.primary,
+                                  theme.colorScheme.secondary,
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Hero(
+                              tag: 'post_title_${widget.post.id}',
+                              child: Material(
+                                type: MaterialType.transparency,
+                                child: Text(
+                                  widget.post.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: theme.colorScheme.onSurface,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primaryContainer.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '#${widget.post.id}',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Hero(
+                        tag: 'post_body_preview_${widget.post.id}',
+                        child: Material(
+                          type: MaterialType.transparency,
+                          child: Text(
+                            _formatBody(widget.post.body),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurface.withOpacity(0.8),
+                              height: 1.6,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.account_circle_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary.withOpacity(0.7),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'User ${widget.post.userId}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withOpacity(0.6),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const Spacer(),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary.withOpacity(0.7),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              Hero(
-                tag: 'post_body_preview_${post.id}', // Unique tag for Hero animation
-                child: Material(
-                  type: MaterialType.transparency, // Essential for Hero text animation
-                  child: Text(
-                    // Replace newlines with spaces for preview if desired,
-                    // but usually, Text handles them fine by default
-                    post.body.replaceAll('\n', ' '), // Or just post.body if newlines are fine in preview
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface.withOpacity(0.7),
-                      height: 1.4, // Improve line spacing
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-class _PostDetails extends StatelessWidget {
+class _PostDetails extends StatefulWidget {
   const _PostDetails({required this.post});
   final Post post;
 
   @override
+  State<_PostDetails> createState() => _PostDetailsState();
+}
+
+class _PostDetailsState extends State<_PostDetails>
+    with TickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOutQuart,
+    );
+    
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fadeController.forward();
+      _slideController.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _slideController.dispose();
+    super.dispose();
+  }
+
+  String _formatBodyForDetails(String body) {
+    return body.replaceAll('\n', '\n\n').trim();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    
     return Scaffold(
       appBar: AppBar(
-        title: Text('Post #${post.id}'),
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
+        title: Text('Post #${widget.post.id}'),
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: theme.colorScheme.onPrimary,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
-      body: SingleChildScrollView( // Make the body scrollable
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Hero(
-              tag: 'post_title_${post.id}', // Match tag with _PostCard
-              child: Material(
-                type: MaterialType.transparency,
-                child: Text(
-                  post.title,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: cs.onSurface,
-                  ),
-                ),
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  theme.colorScheme.surface,
+                  theme.colorScheme.surface.withOpacity(0.8),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            Divider(color: cs.outlineVariant, thickness: 1),
-            const SizedBox(height: 16),
-            Hero(
-              tag: 'post_body_preview_${post.id}', // Match tag with _PostCard
-              child: Material(
-                type: MaterialType.transparency,
-                child: Text(
-                  post.body, // Text widget naturally handles \n for new lines
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: cs.onSurface,
-                    height: 1.6, // Enhanced line spacing for readability
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 50),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    theme.colorScheme.primary,
+                                    theme.colorScheme.secondary,
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                Icons.article_rounded,
+                                color: theme.colorScheme.onPrimary,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Post Details',
+                                    style: theme.textTheme.labelLarge?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.account_circle_rounded,
+                                        size: 16,
+                                        color: theme.colorScheme.onSurface.withOpacity(0.6),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'User ${widget.post.userId}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: theme.colorScheme.onSurface.withOpacity(0.6),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        Hero(
+                          tag: 'post_title_${widget.post.id}',
+                          child: Material(
+                            type: MaterialType.transparency,
+                            child: Text(
+                              widget.post.title,
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.onSurface,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          height: 4,
+                          width: 60,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                theme.colorScheme.primary,
+                                theme.colorScheme.secondary,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Hero(
+                          tag: 'post_body_preview_${widget.post.id}',
+                          child: Material(
+                            type: MaterialType.transparency,
+                            child: Text(
+                              _formatBodyForDetails(widget.post.body),
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.colorScheme.onSurface,
+                                height: 1.8,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(10, 10, 15, 10),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: theme.colorScheme.primary.withOpacity(0.2),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min, // makes row shrink to fit content
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                color: theme.colorScheme.primary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                'Post ID: ${widget.post.id} • User ID: ${widget.post.userId}',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      ],
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 32),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withOpacity(0.2),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.colorScheme.shadow.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Enjoying this post?',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Share your thoughts and engage with the community!',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurface.withOpacity(0.7),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text('Thanks for your interest!'),
+                                backgroundColor: theme.colorScheme.primary,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.favorite_rounded, size: 18),
+                          label: const Text('Like'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
