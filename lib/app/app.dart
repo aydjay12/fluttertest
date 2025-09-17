@@ -8,19 +8,18 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Define a more vibrant and modern color scheme
     final ColorScheme customColorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF6200EE), // Deep Purple for primary
+      seedColor: const Color(0xFF6200EE),
       brightness: Brightness.light,
       primary: const Color(0xFF6200EE),
       onPrimary: Colors.white,
       primaryContainer: const Color(0xFFBB86FC),
       onPrimaryContainer: Colors.black,
-      secondary: const Color(0xFF03DAC6), // Teal for secondary
+      secondary: const Color(0xFF03DAC6),
       onSecondary: Colors.black,
       secondaryContainer: const Color(0xFF66FAF1),
       onSecondaryContainer: Colors.black,
-      surface: const Color(0xFFF0F2F5), // Use surface instead of deprecated background
+      surface: const Color(0xFFF0F2F5),
       onSurface: Colors.black,
       error: Colors.redAccent,
       onError: Colors.white,
@@ -71,7 +70,6 @@ class App extends StatelessWidget {
       child: MaterialApp(
         title: 'Modern Flutter Posts',
         theme: theme,
-        // Remove the blue glow on scroll for a cleaner look
         builder: (context, child) {
           return ScrollConfiguration(
             behavior: const NoGlowScrollBehavior(),
@@ -84,7 +82,6 @@ class App extends StatelessWidget {
   }
 }
 
-// Custom scroll behavior to remove the Android glow effect
 class NoGlowScrollBehavior extends ScrollBehavior {
   const NoGlowScrollBehavior();
 
